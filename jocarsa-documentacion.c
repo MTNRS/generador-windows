@@ -2,18 +2,28 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
 #include <strings.h>
+#endif
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <errno.h>
+#ifndef _WIN32
 #include <dirent.h>
+#endif
 #include <sys/stat.h>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 #include <limits.h>
 #include <time.h>
+#ifdef _WIN32
+#include "windows_compat.h"
+#else
 #include <pwd.h>
 #include <sys/utsname.h>
+#endif
 #include <sqlite3.h>
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -432,13 +442,24 @@ static void generate_metadata_header(Buffer *out, const char *root, const char *
     char current_directory[PATH_MAX];
     char date_text[64];
     const char *username;
+#ifndef _WIN32
     struct passwd *user_info;
     struct utsname system_info;
+#endif
     time_t now;
     struct tm local_time;
 
     username = "desconocido";
 
+#ifdef _WIN32
+    wchar_t user[256], computer[256];
+    DWORD user_size = 256, computer_size = 256;
+    char *windows_user = GetUserNameW(user, &user_size) ? win_utf8(user) : NULL;
+    if (windows_user) username = windows_user;
+    char *windows_host = GetComputerNameW(computer, &computer_size) ? win_utf8(computer) : NULL;
+    snprintf(hostname, sizeof(hostname), "%s", windows_host ? windows_host : "desconocido");
+    free(windows_host);
+#else
     user_info = getpwuid(getuid());
 
     if (user_info != NULL && user_info->pw_name != NULL)
@@ -462,6 +483,7 @@ static void generate_metadata_header(Buffer *out, const char *root, const char *
         strcpy(hostname, "desconocido");
     }
 
+#endif
     hostname[sizeof(hostname) - 1] = '\0';
 
     if (getcwd(current_directory, sizeof(current_directory)) == NULL)
@@ -477,9 +499,16 @@ static void generate_metadata_header(Buffer *out, const char *root, const char *
     buf_append(out, "## Información de generación\n\n");
     buf_printf(out, "- **Fecha:** %s\n", date_text);
     buf_printf(out, "- **Usuario:** %s\n", username);
+#ifndef _WIN32
     buf_printf(out, "- **UID:** %ld\n", (long)getuid());
+#endif
     buf_printf(out, "- **Equipo:** %s\n", hostname);
 
+#ifdef _WIN32
+    buf_append(out, "- **Sistema operativo:** Windows\n");
+    buf_append(out, "- **Arquitectura:** x86_64\n");
+    free(windows_user);
+#else
     if (uname(&system_info) == 0)
     {
         buf_printf(out, "- **Sistema operativo:** %s\n", system_info.sysname);
@@ -487,6 +516,7 @@ static void generate_metadata_header(Buffer *out, const char *root, const char *
         buf_printf(out, "- **Arquitectura:** %s\n", system_info.machine);
     }
 
+#endif
     buf_printf(out, "- **Directorio de ejecución:** `%s`\n", current_directory);
     buf_printf(out, "- **Proyecto documentado:** `%s`\n", root);
     buf_printf(out, "- **HMAC-SHA-256 de autenticidad:** `%s`\n", hash_placeholder);
@@ -670,12 +700,22 @@ static const char *base_name(const char *p) {
     return s?s+1:p;
 }
 static bool is_dir(const char *p) {
+#ifdef _WIN32
+    DWORD a = win_attributes(p);
+    return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY) && !(a & FILE_ATTRIBUTE_REPARSE_POINT);
+#else
     struct stat st;
     return stat(p,&st)==0&&S_ISDIR(st.st_mode);
+#endif
 }
 static bool is_file(const char *p) {
+#ifdef _WIN32
+    DWORD a = win_attributes(p);
+    return a != INVALID_FILE_ATTRIBUTES && !(a & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT));
+#else
     struct stat st;
     return stat(p,&st)==0&&S_ISREG(st.st_mode);
+#endif
 }
 static bool marker_excluded(const char *dir) {
     char p[PATH_MAX];
@@ -694,6 +734,21 @@ static bool relative_path(const char *base,const char *path,char out[PATH_MAX]) 
     return false;
 }
 static void list_entries(const char *dir,StrVec *out) {
+#ifdef _WIN32
+    char pattern[PATH_MAX];
+    path_join(pattern, dir, "*");
+    wchar_t *wide = win_wide(pattern);
+    WIN32_FIND_DATAW entry;
+    HANDLE handle = wide ? FindFirstFileW(wide, &entry) : INVALID_HANDLE_VALUE;
+    free(wide);
+    if (handle == INVALID_HANDLE_VALUE) return;
+    do {
+        if (!wcscmp(entry.cFileName, L".") || !wcscmp(entry.cFileName, L"..")) continue;
+        char *name = win_utf8(entry.cFileName);
+        if (name) { vec_push(out, name); free(name); }
+    } while (FindNextFileW(handle, &entry));
+    FindClose(handle);
+#else
     DIR *d=opendir(dir);
     if(!d)return;
     struct dirent *e;
@@ -702,6 +757,7 @@ static void list_entries(const char *dir,StrVec *out) {
         vec_push(out,e->d_name);
     }
     closedir(d);
+#endif
     vec_sort(out);
 }
 static char *read_file(const char *path,size_t *out_len) {
@@ -1064,7 +1120,17 @@ static int mkdir_p(const char *path) {
     snprintf(tmp,sizeof(tmp),"%s",path);
     size_t n=strlen(tmp);
     if(n&&tmp[n-1]=='/')tmp[n-1]='\0';
-    for(char *p=tmp+1;*p;p++)if(*p=='/') {
+    char *start = tmp + 1;
+#ifdef _WIN32
+    if (tmp[0] && tmp[1] == ':') start = tmp + 3;
+    else if (tmp[0] == '/' && tmp[1] == '/') {
+        start = strchr(tmp + 2, '/');
+        if (start) start = strchr(start + 1, '/');
+        if (!start) return is_dir(tmp) ? 0 : -1;
+        start++;
+    }
+#endif
+    for(char *p=start;*p;p++)if(*p=='/') {
         *p='\0';
         if(mkdir(tmp,0755)!=0&&errno!=EEXIST)return -1;
         *p='/';
@@ -1072,7 +1138,7 @@ static int mkdir_p(const char *path) {
     if(mkdir(tmp,0755)!=0&&errno!=EEXIST)return -1;
     return 0;
 }
-int main(int argc, char **argv)
+static int run(int argc, char **argv)
 {
     char root[PATH_MAX];
     char dest[PATH_MAX];
@@ -1142,6 +1208,12 @@ int main(int argc, char **argv)
         return 1;
     }
 
+#ifdef _WIN32
+    if (!win_fullpath(argv[2], dest)) {
+        fprintf(stderr, "[ERROR] Ruta de destino no valida.\n");
+        return 2;
+    }
+#else
     if (argv[2][0] == '/')
     {
         snprintf(dest, sizeof(dest), "%s", argv[2]);
@@ -1159,6 +1231,7 @@ int main(int argc, char **argv)
         path_join(dest, current_directory, argv[2]);
     }
 
+#endif
     if (mkdir_p(dest) != 0)
     {
         fprintf(
@@ -1289,3 +1362,24 @@ int main(int argc, char **argv)
 
     return 0;
 }
+
+#ifdef _WIN32
+int wmain(int argc, wchar_t **wide_argv) {
+    SetConsoleOutputCP(CP_UTF8);
+    char **argv = calloc((size_t)argc + 1, sizeof(char *));
+    if (!argv) return 2;
+    for (int i = 0; i < argc; i++) {
+        argv[i] = win_utf8(wide_argv[i]);
+        if (!argv[i]) {
+            for (int j = 0; j < i; j++) free(argv[j]);
+            free(argv); return 2;
+        }
+    }
+    int result = run(argc, argv);
+    for (int i = 0; i < argc; i++) free(argv[i]);
+    free(argv);
+    return result;
+}
+#else
+int main(int argc, char **argv) { return run(argc, argv); }
+#endif
