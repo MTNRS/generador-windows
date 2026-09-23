@@ -5,11 +5,17 @@ Compilado a partir de https://github.com/jocarsa/generador, commit
 
 ## Uso sencillo
 
-Extrae el ZIP completo. Arrastra la carpeta de tu proyecto sobre
-**Generar informe.cmd**, o abre ese archivo y pega la ruta del proyecto.
+Extrae el ZIP completo y abre **Generador-Windows.exe**.
+
+1. Pulsa **Examinar?** y selecciona la carpeta de tu proyecto.
+2. Pulsa **Generar informe**.
+3. Cuando termine, pulsa **Abrir carpeta del informe**.
+
 El informe `.md` se guarda en la subcarpeta `documentacion` del proyecto.
-Esa subcarpeta se excluye de los informes, según la configuración original.
-Mantén el archivo `.cmd` junto a `jocarsa-documentacion.exe`.
+Esa subcarpeta se excluye de los informes, seg?n la configuraci?n original.
+Mant?n `Generador-Windows.exe` y `jocarsa-documentacion.exe` en la misma carpeta.
+La ventana utiliza .NET Framework 4.5 o posterior, incluido en Windows 10 y 11.
+Tambi?n puedes seguir arrastrando carpetas sobre **Generar informe.cmd**.
 
 ## Uso desde PowerShell
 
@@ -20,9 +26,9 @@ Abre una terminal en la carpeta del ejecutable:
 .\jocarsa-documentacion.exe --verify "C:\ruta\Informes\Mi proyecto_FECHA.md"
 ```
 
-El programa es de consola. Abrir directamente el `.exe` sin argumentos no
-genera un informe. No requiere Python, SQLite, WSL ni Visual Studio para usarlo.
-Solo depende de bibliotecas incluidas en Windows. Compilación de 64 bits.
+El motor `jocarsa-documentacion.exe` es de consola. Para utilizar la ventana,
+abre `Generador-Windows.exe`. No requiere Python, SQLite, WSL ni Visual Studio para usarlo.
+El motor nativo solo depende de bibliotecas incluidas en Windows. Compilación de 64 bits.
 
 Se mantienen el contenido del informe, las extensiones y carpetas excluidas,
 la inspección del esquema SQLite y el cálculo HMAC del código original.

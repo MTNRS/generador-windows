@@ -12,4 +12,9 @@ if errorlevel 1 exit /b 1
 cl /nologo /O2 /MT /utf-8 /D_CRT_SECURE_NO_WARNINGS /DSQLITE_THREADSAFE=0 /c vendor\sqlite\sqlite3.c /Fobuild\sqlite3.obj
 if errorlevel 1 exit /b 1
 link /nologo build\generador.obj build\sqlite3.obj advapi32.lib /OUT:dist\jocarsa-documentacion.exe
+if errorlevel 1 exit /b 1
+"%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:winexe /platform:x64 /optimize+ /reference:System.Windows.Forms.dll /reference:System.Drawing.dll /out:dist\Generador-Windows.exe GeneradorWindows.cs
+if errorlevel 1 exit /b 1
+copy /y "Generar informe.cmd" dist\ >nul
+copy /y LEEME-Windows.md dist\ >nul
 exit /b %errorlevel%
